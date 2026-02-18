@@ -36,7 +36,7 @@ jobs:
         run: python3 generate_icons.py
 
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: gradle assembleDebug --no-daemon --no-build-cache --stacktrace
         env:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false"
 
@@ -71,4 +71,3 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
