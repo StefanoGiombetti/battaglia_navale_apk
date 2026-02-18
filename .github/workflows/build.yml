@@ -26,13 +26,9 @@ jobs:
       - name: Download Gradle wrapper jar
         run: |
           mkdir -p gradle/wrapper
-          curl -sL "https://github.com/gradle/gradle/raw/v8.8.0/gradle/wrapper/gradle-wrapper.jar" \
+          curl -fL "https://github.com/gradle/gradle/raw/v8.7.0/gradle/wrapper/gradle-wrapper.jar" \
             -o gradle/wrapper/gradle-wrapper.jar
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: wrapper
+          echo "Wrapper jar: $(du -sh gradle/wrapper/gradle-wrapper.jar)"
 
       - name: Generate launcher icons
         run: python3 generate_icons.py
@@ -41,18 +37,15 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
-
-      - name: Rename APK
-        run: |
-          mkdir -p artifacts
-          cp app/build/outputs/apk/debug/app-debug.apk artifacts/BattagliaNavale-v1.0-debug.apk
+        run: ./gradlew assembleDebug --no-daemon --no-build-cache --stacktrace
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: BattagliaNavale-APK
-          path: artifacts/BattagliaNavale-v1.0-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
       - name: Create Release
@@ -74,14 +67,8 @@ jobs:
             ### Come giocare
             Apri l'app su due dispositivi Android sulla stessa rete Wi-Fi.
             Connetti i dispositivi, configura la partita, posiziona le navi e gioca!
-          files: artifacts/BattagliaNavale-v1.0-debug.apk
+          files: app/build/outputs/apk/debug/app-debug.apk
           draft: false
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build summary
-        run: |
-          echo "## Build completata!" >> $GITHUB_STEP_SUMMARY
-          echo "APK: BattagliaNavale-v1.0-debug.apk" >> $GITHUB_STEP_SUMMARY
-          echo "Size: $(du -sh artifacts/*.apk | cut -f1)" >> $GITHUB_STEP_SUMMARY
