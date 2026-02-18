@@ -1,0 +1,137 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:   # allows manual trigger from GitHub UI
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout code ────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Setup JDK 17 ─────────────────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      # ── 3. Generate a placeholder launcher icon ──────────────────────────────
+      - name: Generate placeholder launcher icon
+        run: |
+          sudo apt-get install -y imagemagick 2>/dev/null || true
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-mdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
+          # Create colored PNG icons using ImageMagick
+          for size_name in "72:hdpi" "48:mdpi" "96:xhdpi" "144:xxhdpi" "192:xxxhdpi"; do
+            size=$(echo $size_name | cut -d: -f1)
+            dpi=$(echo $size_name | cut -d: -f2)
+            convert -size ${size}x${size} \
+              xc:"#1A2688" \
+              -fill white \
+              -font DejaVu-Sans -pointsize $((size/3)) \
+              -gravity center \
+              -annotate 0 "⚓" \
+              "app/src/main/res/mipmap-${dpi}/ic_launcher.png" 2>/dev/null || \
+            python3 -c "
+import struct, zlib
+def png(w,h,color):
+    def chunk(t,d):
+        c=zlib.crc32(t+d)&0xffffffff
+        return struct.pack('>I',len(d))+t+d+struct.pack('>I',c)
+    raw=b''
+    for _ in range(h):
+        row=b'\x00'
+        for _ in range(w):
+            row+=bytes(color)
+        raw+=row
+    return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',w,h,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b'')
+open('app/src/main/res/mipmap-${dpi}/ic_launcher.png','wb').write(png(${size},${size},[26,38,136]))
+open('app/src/main/res/mipmap-${dpi}/ic_launcher_round.png','wb').write(png(${size},${size},[26,38,136]))
+"
+          done
+          echo "Icons generated ✓"
+
+      # ── 4. Grant execute permission to gradlew ──────────────────────────────
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # ── 5. Cache Gradle ─────────────────────────────────────────────────────
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # ── 6. Build DEBUG APK ──────────────────────────────────────────────────
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.parallel=false"
+
+      # ── 7. Rename APK with version info ────────────────────────────────────
+      - name: Rename APK
+        run: |
+          mkdir -p artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk \
+             artifacts/BattagliaNavale-v1.0-debug.apk
+          echo "APK ready: BattagliaNavale-v1.0-debug.apk"
+
+      # ── 8. Upload APK as artifact ───────────────────────────────────────────
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BattagliaNavale-APK
+          path: artifacts/BattagliaNavale-v1.0-debug.apk
+          retention-days: 30
+
+      # ── 9. Create GitHub Release (only on push to main) ─────────────────────
+      - name: Create Release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0-build-${{ github.run_number }}
+          name: "Battaglia Navale v1.0 (build ${{ github.run_number }})"
+          body: |
+            ## ⚓ Battaglia Navale - APK Debug
+            
+            Build automatico dal commit `${{ github.sha }}`
+            
+            ### 📥 Come installare
+            1. Scarica il file `.apk` qui sotto
+            2. Sul tuo Android: **Impostazioni → Sicurezza → Sorgenti sconosciute → Attiva**
+            3. Apri il file APK scaricato e installa
+            
+            ### 🎮 Come giocare
+            - Apri l'app su **due dispositivi Android** sulla stessa rete Wi-Fi
+            - Connetti i dispositivi dall'app → Configura → Posiziona navi → Gioca!
+          files: artifacts/BattagliaNavale-v1.0-debug.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 10. Print summary ───────────────────────────────────────────────────
+      - name: Build summary
+        run: |
+          echo "## ✅ Build completata!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**APK:** BattagliaNavale-v1.0-debug.apk" >> $GITHUB_STEP_SUMMARY
+          echo "**Size:** $(du -sh artifacts/*.apk | cut -f1)" >> $GITHUB_STEP_SUMMARY
+          echo "**Scarica:** Vai su *Actions → questo run → Artifacts*" >> $GITHUB_STEP_SUMMARY
